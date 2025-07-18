@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aim Trainer Game</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>Aim Trainer</h1>
+      <div class="hud">
+        <span id="score">Score: 0</span>
+        <span id="timer">Time: 30</span>
+        <span id="accuracy">Accuracy: 0%</span>
+      </div>
+      <div id="game-area"></div>
+      <div class="game-controls">
+        <div class="mode-selector">
+          <span>Game Mode:</span>
+          <select id="game-mode">
+            <option value="standard">Standard</option>
+            <option value="quickscope">Quick Scope</option>
+          </select>
+        </div>
+        <button id="start-btn">Start Game</button>
+      </div>
+    </div>
+    <script src="script.js"></script>
+  </body>
+</html>
