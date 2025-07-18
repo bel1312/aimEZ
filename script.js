@@ -3,7 +3,9 @@ const scoreDisplay = document.getElementById("score");
 const timerDisplay = document.getElementById("timer");
 const accuracyDisplay = document.getElementById("accuracy");
 const startBtn = document.getElementById("start-btn");
+const stopBtn = document.getElementById("stop-btn");
 const gameModeSelect = document.getElementById("game-mode");
+const targetDurationSelect = document.getElementById("target-duration");
 
 let score = 0;
 let totalShots = 0;
@@ -13,6 +15,7 @@ let gameActive = false;
 let timerInterval = null;
 let targetTimeout = null;
 let currentGameMode = "standard";
+let targetDuration = 1; // Default target duration in seconds
 let isPointerLocked = false;
 let customCursor = null;
 
@@ -33,11 +36,29 @@ function spawnTarget() {
   target.style.top = `${y}px`;
   target.addEventListener("click", hitTarget);
   gameArea.appendChild(target);
+
+  // Set timeout to remove target if not hit within the specified duration
+  if (targetDuration > 0) {
+    targetTimeout = setTimeout(() => {
+      if (gameActive) {
+        removeTarget();
+        spawnTarget(); // Spawn a new target
+        totalShots++; // Count as a miss
+        updateHUD();
+      }
+    }, targetDuration * 1000);
+  }
 }
 
 function removeTarget() {
   const existing = document.querySelector(".target");
   if (existing) existing.remove();
+
+  // Clear any existing timeout
+  if (targetTimeout) {
+    clearTimeout(targetTimeout);
+    targetTimeout = null;
+  }
 }
 
 // Create custom cursor element
@@ -54,7 +75,7 @@ function createCustomCursor() {
   customCursor.style.width = "32px";
   customCursor.style.height = "32px";
   customCursor.style.backgroundImage =
-    'url(\'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"%3E%3Ccircle cx="16" cy="16" r="14" fill="none" stroke="red" stroke-width="1.5"/%3E%3Ccircle cx="16" cy="16" r="2" fill="red"/%3E%3Cline x1="16" y1="4" x2="16" y2="12" stroke="red" stroke-width="1.5"/%3E%3Cline x1="16" y1="20" x2="16" y2="28" stroke="red" stroke-width="1.5"/%3E%3Cline x1="4" y1="16" x2="12" y2="16" stroke="red" stroke-width="1.5"/%3E%3Cline x1="20" y1="16" x2="28" y2="16" stroke="red" stroke-width="1.5"/%3E%3C/svg%3E\')';
+    'url(\'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"%3E%3Ccircle cx="16" cy="16" r="14" fill="none" stroke="green" stroke-width="1.5"/%3E%3Ccircle cx="16" cy="16" r="2" fill="green"/%3E%3Cline x1="16" y1="4" x2="16" y2="12" stroke="green" stroke-width="1.5"/%3E%3Cline x1="16" y1="20" x2="16" y2="28" stroke="green" stroke-width="1.5"/%3E%3Cline x1="4" y1="16" x2="12" y2="16" stroke="green" stroke-width="1.5"/%3E%3Cline x1="20" y1="16" x2="28" y2="16" stroke="green" stroke-width="1.5"/%3E%3C/svg%3E\')';
   customCursor.style.backgroundSize = "contain";
   customCursor.style.backgroundRepeat = "no-repeat";
   customCursor.style.pointerEvents = "none"; // Make sure it doesn't interfere with clicks
@@ -130,11 +151,11 @@ let cursorY = 0;
 
 function updateCursorOnPointerLock(e) {
   if (isPointerLocked && customCursor) {
-    // Get movement
+    // Get movement - use raw movement values without any acceleration
     const movementX = e.movementX || e.mozMovementX || e.webkitMovementX || 0;
     const movementY = e.movementY || e.mozMovementY || e.webkitMovementY || 0;
 
-    // Update cursor position
+    // Update cursor position with a fixed sensitivity (1:1 ratio)
     const areaRect = gameArea.getBoundingClientRect();
     cursorX += movementX;
     cursorY += movementY;
@@ -154,7 +175,7 @@ function updateCursorOnMouseMove(e) {
     const x = e.clientX - areaRect.left;
     const y = e.clientY - areaRect.top;
 
-    // Update cursor position
+    // Update cursor position directly to match actual mouse position
     cursorX = x;
     cursorY = y;
 
@@ -268,7 +289,9 @@ function startGame() {
   timeLeft = 30;
   gameActive = true;
   startBtn.disabled = true;
+  stopBtn.disabled = false;
   currentGameMode = gameModeSelect.value;
+  targetDuration = parseFloat(targetDurationSelect.value);
 
   // Setup pointer lock for quick scope mode
   if (currentGameMode === "quickscope") {
@@ -292,11 +315,39 @@ function startGame() {
   }, 1000);
 }
 
+function stopGame() {
+  gameActive = false;
+  clearInterval(timerInterval);
+  removeTarget(); // This will also clear any target timeout
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+
+  // Exit pointer lock if active
+  if (isPointerLocked) {
+    document.exitPointerLock();
+  }
+
+  // Remove custom cursor
+  if (customCursor) {
+    customCursor.remove();
+    customCursor = null;
+  }
+
+  // Show game summary
+  const accuracy = totalShots > 0 ? Math.round((hits / totalShots) * 100) : 0;
+  alert(
+    `Game stopped!\nGame Mode: ${
+      currentGameMode === "standard" ? "Standard" : "Quick Scope"
+    }\nScore: ${score}\nAccuracy: ${accuracy}%`
+  );
+}
+
 function endGame() {
   gameActive = false;
   clearInterval(timerInterval);
-  removeTarget();
+  removeTarget(); // This will also clear any target timeout
   startBtn.disabled = false;
+  stopBtn.disabled = true;
 
   // Exit pointer lock if active
   if (isPointerLocked) {
@@ -324,8 +375,19 @@ gameModeSelect.addEventListener("change", function () {
     gameArea.style.cursor = "none";
   } else {
     gameArea.style.cursor =
-      'url(\'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"%3E%3Ccircle cx="16" cy="16" r="14" fill="none" stroke="red" stroke-width="1.5"/%3E%3Ccircle cx="16" cy="16" r="2" fill="red"/%3E%3Cline x1="16" y1="4" x2="16" y2="12" stroke="red" stroke-width="1.5"/%3E%3Cline x1="16" y1="20" x2="16" y2="28" stroke="red" stroke-width="1.5"/%3E%3Cline x1="4" y1="16" x2="12" y2="16" stroke="red" stroke-width="1.5"/%3E%3Cline x1="20" y1="16" x2="28" y2="16" stroke="red" stroke-width="1.5"/%3E%3C/svg%3E\') 16 16, crosshair';
+      'url(\'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"%3E%3Ccircle cx="16" cy="16" r="14" fill="none" stroke="green" stroke-width="1.5"/%3E%3Ccircle cx="16" cy="16" r="2" fill="green"/%3E%3Cline x1="16" y1="4" x2="16" y2="12" stroke="green" stroke-width="1.5"/%3E%3Cline x1="16" y1="20" x2="16" y2="28" stroke="green" stroke-width="1.5"/%3E%3Cline x1="4" y1="16" x2="12" y2="16" stroke="green" stroke-width="1.5"/%3E%3Cline x1="20" y1="16" x2="28" y2="16" stroke="green" stroke-width="1.5"/%3E%3C/svg%3E\') 16 16, crosshair';
   }
 });
 
 startBtn.addEventListener("click", startGame);
+stopBtn.addEventListener("click", stopGame);
+
+// Handle window resize to ensure custom cursor stays within bounds
+window.addEventListener("resize", function () {
+  if (customCursor && gameActive) {
+    const areaRect = gameArea.getBoundingClientRect();
+    cursorX = Math.min(cursorX, areaRect.width);
+    cursorY = Math.min(cursorY, areaRect.height);
+    updateCustomCursorPosition(cursorX, cursorY);
+  }
+});

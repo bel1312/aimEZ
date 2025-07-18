@@ -23,7 +23,21 @@
             <option value="quickscope">Quick Scope</option>
           </select>
         </div>
-        <button id="start-btn">Start Game</button>
+        <div class="mode-selector">
+          <span>Target Duration:</span>
+          <select id="target-duration">
+            <option value="1">1s</option>
+            <option value="1.5">1.5s</option>
+            <option value="2">2s</option>
+            <option value="2.5">2.5s</option>
+            <option value="3">3s</option>
+            <option value="0">Never</option>
+          </select>
+        </div>
+        <div class="button-group">
+          <button id="start-btn">Start Game</button>
+          <button id="stop-btn" disabled>Stop Game</button>
+        </div>
       </div>
     </div>
     <script src="script.js"></script>
