@@ -23,6 +23,8 @@
             <option value="quickscope">Quick Scope</option>
             <option value="moving">Moving Target</option>
             <option value="reflex">Quick Reflex</option>
+            <option value="flick">Flick Shot</option>
+            <option value="tracking">Tracking</option>
           </select>
         </div>
         <div class="mode-selector">
@@ -43,6 +45,23 @@
             <option value="3" selected>Medium</option>
             <option value="5">Fast</option>
             <option value="8">Very Fast</option>
+          </select>
+        </div>
+        <div class="mode-selector" id="flick-control" style="display: none">
+          <span>Difficulty:</span>
+          <select id="flick-difficulty">
+            <option value="easy">Easy</option>
+            <option value="medium" selected>Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </div>
+        <div class="mode-selector" id="tracking-control" style="display: none">
+          <span>Pattern:</span>
+          <select id="tracking-pattern">
+            <option value="linear">Linear</option>
+            <option value="circular" selected>Circular</option>
+            <option value="random">Random</option>
+            <option value="zigzag">Zig-Zag</option>
           </select>
         </div>
         <div class="button-group">

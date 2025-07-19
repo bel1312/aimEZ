@@ -30,6 +30,26 @@ let reflexStartTime = 0;
 let reflexTimeout = null;
 let reflexState = "idle"; // idle, wait, go, early, results
 
+// Flick shot mode variables
+let flickDifficulty = "medium"; // easy, medium, hard
+let lastTargetPosition = null; // To ensure targets spawn far from each other
+let flickTargetSize = 48; // Size of flick targets in pixels
+let flickConsecutiveHits = 0; // Track consecutive hits for combo scoring
+
+// Tracking mode variables
+let trackingPattern = "circular"; // linear, circular, random, zigzag
+let trackingTarget = null;
+let trackingScoreInterval = null;
+let trackingAnimationFrame = null;
+let trackingScore = 0;
+let trackingMultiplier = 1;
+let trackingStreak = 0;
+let trackingMaxStreak = 0;
+let trackingLastPosition = { x: 0, y: 0 };
+let trackingCurrentAngle = 0;
+let trackingDirection = 1;
+let trackingPathPoints = [];
+
 function randomPosition() {
   const areaRect = gameArea.getBoundingClientRect();
   const size = 48; // target size
@@ -417,6 +437,17 @@ gameArea.addEventListener("click", function (e) {
     gameArea.requestPointerLock();
   }
 
+  // For flick mode, count misses when clicking on the game area (not on a target)
+  if (currentGameMode === "flick") {
+    // Only count as a miss if not clicking on a target
+    if (!e.target.closest(".target")) {
+      totalShots++;
+      flickConsecutiveHits = 0; // Reset combo on miss
+      updateHUD();
+    }
+    return;
+  }
+
   // Check if we clicked on a target
   const target = e.target.closest(".target");
   if (!target && isPointerLocked) {
@@ -483,6 +514,18 @@ function startGame() {
     targetSpeed = parseInt(targetSpeedSelect.value);
   }
 
+  // Set flick difficulty if in flick mode
+  if (currentGameMode === "flick") {
+    const flickDifficultySelect = document.getElementById("flick-difficulty");
+    flickDifficulty = flickDifficultySelect.value;
+  }
+
+  // Set tracking pattern if in tracking mode
+  if (currentGameMode === "tracking") {
+    const trackingPatternSelect = document.getElementById("tracking-pattern");
+    trackingPattern = trackingPatternSelect.value;
+  }
+
   // Setup pointer lock for quick scope mode
   if (currentGameMode === "quickscope") {
     setupPointerLock();
@@ -500,6 +543,25 @@ function startGame() {
   // Start appropriate game mode
   if (currentGameMode === "reflex") {
     startReflexMode();
+  } else if (currentGameMode === "flick") {
+    startFlickMode();
+    updateHUD();
+    timerInterval = setInterval(() => {
+      timeLeft--;
+      updateHUD();
+      if (timeLeft <= 0) {
+        endGame();
+      }
+    }, 1000);
+  } else if (currentGameMode === "tracking") {
+    startTrackingMode();
+    timerInterval = setInterval(() => {
+      timeLeft--;
+      updateTrackingHUD();
+      if (timeLeft <= 0) {
+        endGame();
+      }
+    }, 1000);
   } else {
     updateHUD();
     spawnTarget();
@@ -534,17 +596,34 @@ function stopGame() {
   // Clean up reflex mode if active
   cleanupReflexMode();
 
+  // Clean up any combo effects
+  const comboEffects = document.querySelectorAll(".combo-effect");
+  comboEffects.forEach((effect) => effect.remove());
+
+  // Clean up tracking mode if active
+  if (currentGameMode === "tracking") {
+    cleanupTrackingMode();
+  }
+
   // Show game summary
   const accuracy = totalShots > 0 ? Math.round((hits / totalShots) * 100) : 0;
   let gameModeName = "Standard";
   if (currentGameMode === "quickscope") gameModeName = "Quick Scope";
   if (currentGameMode === "moving") gameModeName = "Moving Target";
   if (currentGameMode === "reflex") gameModeName = "Quick Reflex";
+  if (currentGameMode === "flick") gameModeName = "Flick Shot";
+  if (currentGameMode === "tracking") gameModeName = "Tracking";
 
   if (currentGameMode !== "reflex") {
-    alert(
-      `Game stopped!\nGame Mode: ${gameModeName}\nScore: ${score}\nAccuracy: ${accuracy}%`
-    );
+    let summaryMessage = `Game stopped!\nGame Mode: ${gameModeName}\nScore: ${score}`;
+
+    if (currentGameMode === "tracking") {
+      summaryMessage += `\nMax Streak: ${trackingMaxStreak}`;
+    } else {
+      summaryMessage += `\nAccuracy: ${accuracy}%`;
+    }
+
+    alert(summaryMessage);
   }
 }
 
@@ -569,17 +648,34 @@ function endGame() {
   // Clean up reflex mode if active
   cleanupReflexMode();
 
+  // Clean up any combo effects
+  const comboEffects = document.querySelectorAll(".combo-effect");
+  comboEffects.forEach((effect) => effect.remove());
+
+  // Clean up tracking mode if active
+  if (currentGameMode === "tracking") {
+    cleanupTrackingMode();
+  }
+
   let gameModeName = "Standard";
   if (currentGameMode === "quickscope") gameModeName = "Quick Scope";
   if (currentGameMode === "moving") gameModeName = "Moving Target";
   if (currentGameMode === "reflex") gameModeName = "Quick Reflex";
+  if (currentGameMode === "flick") gameModeName = "Flick Shot";
+  if (currentGameMode === "tracking") gameModeName = "Tracking";
 
   if (currentGameMode !== "reflex") {
-    alert(
-      `Time's up!\nGame Mode: ${gameModeName}\nScore: ${score}\nAccuracy: ${
+    let summaryMessage = `Time's up!\nGame Mode: ${gameModeName}\nScore: ${score}`;
+
+    if (currentGameMode === "tracking") {
+      summaryMessage += `\nMax Streak: ${trackingMaxStreak}`;
+    } else {
+      summaryMessage += `\nAccuracy: ${
         totalShots > 0 ? Math.round((hits / totalShots) * 100) : 0
-      }%`
-    );
+      }%`;
+    }
+
+    alert(summaryMessage);
   }
 }
 
@@ -831,12 +927,593 @@ function cleanupReflexMode() {
   reflexState = "idle";
 }
 
+// Flick Shot Mode Functions
+function startFlickMode() {
+  // Reset flick mode variables
+  flickConsecutiveHits = 0;
+  lastTargetPosition = null;
+
+  // Spawn first target
+  spawnFlickTarget();
+}
+
+function spawnFlickTarget() {
+  removeTarget(); // Remove any existing target
+
+  const target = document.createElement("div");
+  target.classList.add("target", "flick-target");
+
+  // Get position based on difficulty
+  const position = getFlickTargetPosition();
+
+  target.style.left = `${position.x}px`;
+  target.style.top = `${position.y}px`;
+
+  // Adjust size based on difficulty
+  if (flickDifficulty === "easy") {
+    target.style.width = `${flickTargetSize}px`;
+    target.style.height = `${flickTargetSize}px`;
+  } else if (flickDifficulty === "medium") {
+    target.style.width = `${flickTargetSize * 0.8}px`;
+    target.style.height = `${flickTargetSize * 0.8}px`;
+  } else if (flickDifficulty === "hard") {
+    target.style.width = `${flickTargetSize * 0.6}px`;
+    target.style.height = `${flickTargetSize * 0.6}px`;
+  }
+
+  // Add combo indicator for consecutive hits
+  if (flickConsecutiveHits > 0) {
+    const combo = document.createElement("div");
+    combo.className = "flick-combo";
+    combo.textContent = `${flickConsecutiveHits}x`;
+    target.appendChild(combo);
+  }
+
+  target.addEventListener("click", hitFlickTarget);
+  gameArea.appendChild(target);
+
+  // Store last position for next spawn
+  lastTargetPosition = position;
+
+  // Set timeout to remove target if not hit within the specified duration
+  if (targetDuration > 0) {
+    targetTimeout = setTimeout(() => {
+      if (gameActive) {
+        // Reset combo on miss
+        flickConsecutiveHits = 0;
+        removeTarget();
+        spawnFlickTarget(); // Spawn a new target
+        totalShots++; // Count as a miss
+        updateHUD();
+      }
+    }, targetDuration * 1000);
+  }
+
+  // Reset cursor to center after each target spawn
+  resetCursorPosition();
+}
+
+function getFlickTargetPosition() {
+  const areaRect = gameArea.getBoundingClientRect();
+  const padding = 60; // Padding from edges
+  const size = flickTargetSize;
+  let x, y;
+
+  // Determine position based on difficulty
+  if (flickDifficulty === "easy") {
+    // Easy: Targets only appear at the four corners
+    const corner = Math.floor(Math.random() * 4);
+    switch (corner) {
+      case 0: // Top-left
+        x = padding;
+        y = padding;
+        break;
+      case 1: // Top-right
+        x = areaRect.width - padding - size;
+        y = padding;
+        break;
+      case 2: // Bottom-left
+        x = padding;
+        y = areaRect.height - padding - size;
+        break;
+      case 3: // Bottom-right
+        x = areaRect.width - padding - size;
+        y = areaRect.height - padding - size;
+        break;
+    }
+  } else if (flickDifficulty === "medium") {
+    // Medium: Targets appear along the edges
+    const edge = Math.floor(Math.random() * 4);
+    switch (edge) {
+      case 0: // Top edge
+        x = padding + Math.random() * (areaRect.width - 2 * padding - size);
+        y = padding;
+        break;
+      case 1: // Right edge
+        x = areaRect.width - padding - size;
+        y = padding + Math.random() * (areaRect.height - 2 * padding - size);
+        break;
+      case 2: // Bottom edge
+        x = padding + Math.random() * (areaRect.width - 2 * padding - size);
+        y = areaRect.height - padding - size;
+        break;
+      case 3: // Left edge
+        x = padding;
+        y = padding + Math.random() * (areaRect.height - 2 * padding - size);
+        break;
+    }
+  } else if (flickDifficulty === "hard") {
+    // Hard: Targets appear anywhere, but far from the previous target
+    let minDistance = Math.min(areaRect.width, areaRect.height) * 0.6;
+    let attempts = 0;
+    let validPosition = false;
+
+    while (!validPosition && attempts < 20) {
+      x = padding + Math.random() * (areaRect.width - 2 * padding - size);
+      y = padding + Math.random() * (areaRect.height - 2 * padding - size);
+
+      if (
+        !lastTargetPosition ||
+        calculateDistance(
+          { x: x + size / 2, y: y + size / 2 },
+          {
+            x: lastTargetPosition.x + size / 2,
+            y: lastTargetPosition.y + size / 2,
+          }
+        ) > minDistance
+      ) {
+        validPosition = true;
+      }
+
+      attempts++;
+    }
+  }
+
+  return { x, y };
+}
+
+function calculateDistance(point1, point2) {
+  return Math.sqrt(
+    Math.pow(point2.x - point1.x, 2) + Math.pow(point2.y - point1.y, 2)
+  );
+}
+
+function hitFlickTarget(e) {
+  if (!gameActive) return;
+
+  // Increase score and consecutive hits
+  score++;
+  hits++;
+  totalShots++;
+  flickConsecutiveHits++;
+
+  // Add bonus points for combos
+  if (flickConsecutiveHits > 1) {
+    // Add bonus points based on combo multiplier
+    const bonus = Math.min(flickConsecutiveHits - 1, 4); // Cap bonus at 4x
+    score += bonus;
+
+    // Show combo effect
+    showComboEffect(e.target);
+  }
+
+  updateHUD();
+
+  // Remove current target
+  removeTarget();
+
+  // Spawn new target
+  spawnFlickTarget();
+
+  e.stopPropagation();
+}
+
+function showComboEffect(target) {
+  const rect = target.getBoundingClientRect();
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+
+  const comboEffect = document.createElement("div");
+  comboEffect.className = "combo-effect";
+  comboEffect.textContent = `+${Math.min(flickConsecutiveHits - 1, 4)}`;
+  comboEffect.style.left = `${x - gameArea.getBoundingClientRect().left}px`;
+  comboEffect.style.top = `${y - gameArea.getBoundingClientRect().top}px`;
+
+  gameArea.appendChild(comboEffect);
+
+  // Animate and remove
+  setTimeout(() => {
+    if (comboEffect.parentNode) {
+      comboEffect.parentNode.removeChild(comboEffect);
+    }
+  }, 1000);
+}
+
+// Tracking Mode Functions
+function startTrackingMode() {
+  // Reset tracking mode variables
+  trackingScore = 0;
+  trackingMultiplier = 1;
+  trackingStreak = 0;
+  trackingMaxStreak = 0;
+  trackingCurrentAngle = 0;
+  trackingDirection = 1;
+  trackingPathPoints = [];
+
+  // Create tracking target
+  createTrackingTarget();
+
+  // Create cursor indicator for tracking
+  createTrackingCursor();
+
+  // Update HUD to show tracking-specific info
+  updateTrackingHUD();
+
+  // Add mouse move listener for tracking
+  gameArea.addEventListener("mousemove", trackMouse);
+
+  // Start tracking score interval
+  trackingScoreInterval = setInterval(updateTrackingScore, 100); // Check every 100ms
+}
+
+function createTrackingCursor() {
+  // Remove existing cursor indicator if any
+  const existingCursor = document.querySelector(".tracking-cursor");
+  if (existingCursor) {
+    existingCursor.remove();
+  }
+
+  // Create cursor indicator
+  const cursor = document.createElement("div");
+  cursor.className = "tracking-cursor";
+  gameArea.appendChild(cursor);
+
+  // Update cursor position on mouse move
+  gameArea.addEventListener("mousemove", (e) => {
+    if (!gameActive) return;
+
+    const areaRect = gameArea.getBoundingClientRect();
+    const x = e.clientX - areaRect.left;
+    const y = e.clientY - areaRect.top;
+
+    cursor.style.left = `${x}px`;
+    cursor.style.top = `${y}px`;
+  });
+}
+
+// Track mouse position for tracking mode
+let mouseX = 0;
+let mouseY = 0;
+
+function trackMouse(e) {
+  if (!gameActive) return;
+
+  const areaRect = gameArea.getBoundingClientRect();
+  mouseX = e.clientX - areaRect.left;
+  mouseY = e.clientY - areaRect.top;
+}
+
+function createTrackingTarget() {
+  // Remove any existing target
+  if (trackingTarget) {
+    trackingTarget.remove();
+  }
+
+  // Create new tracking target
+  trackingTarget = document.createElement("div");
+  trackingTarget.classList.add("tracking-target");
+
+  // Add inner circle for better visual tracking
+  const innerCircle = document.createElement("div");
+  innerCircle.classList.add("tracking-inner");
+  trackingTarget.appendChild(innerCircle);
+
+  // Add to game area
+  gameArea.appendChild(trackingTarget);
+
+  // Set initial position to center
+  const areaRect = gameArea.getBoundingClientRect();
+  const targetSize = 80; // Increased size for easier tracking (was 60)
+  const x = areaRect.width / 2 - targetSize / 2;
+  const y = areaRect.height / 2 - targetSize / 2;
+
+  trackingTarget.style.width = `${targetSize}px`;
+  trackingTarget.style.height = `${targetSize}px`;
+  trackingTarget.style.left = `${x}px`;
+  trackingTarget.style.top = `${y}px`;
+
+  // Store initial position
+  trackingLastPosition = { x, y };
+
+  // Start movement animation
+  startTrackingMovement();
+}
+
+function startTrackingMovement() {
+  // Cancel any existing animation frame
+  if (trackingAnimationFrame) {
+    cancelAnimationFrame(trackingAnimationFrame);
+  }
+
+  const areaRect = gameArea.getBoundingClientRect();
+  const targetRect = trackingTarget.getBoundingClientRect();
+  const targetSize = targetRect.width;
+
+  // Calculate boundaries
+  const minX = 20;
+  const maxX = areaRect.width - targetSize - 20;
+  const minY = 20;
+  const maxY = areaRect.height - targetSize - 20;
+
+  // For circular and zigzag patterns
+  const centerX = areaRect.width / 2 - targetSize / 2;
+  const centerY = areaRect.height / 2 - targetSize / 2;
+  const radius = Math.min(areaRect.width, areaRect.height) * 0.35;
+
+  // For random pattern
+  if (trackingPattern === "random") {
+    generateRandomPath(minX, maxX, minY, maxY);
+  }
+
+  // For zigzag pattern
+  if (trackingPattern === "zigzag") {
+    generateZigzagPath(minX, maxX, minY, maxY);
+  }
+
+  // Animation variables
+  let lastTimestamp = null;
+  let speed = 2; // Base speed
+
+  // Adjust speed based on pattern
+  if (trackingPattern === "random") speed = 3;
+  if (trackingPattern === "circular") speed = 1.5;
+  if (trackingPattern === "zigzag") speed = 2.5;
+
+  // Animation function
+  const animate = (timestamp) => {
+    if (!gameActive) return;
+
+    if (!lastTimestamp) lastTimestamp = timestamp;
+    const deltaTime = timestamp - lastTimestamp;
+    lastTimestamp = timestamp;
+
+    // Calculate time-based movement
+    const timeScale = deltaTime / 16; // Normalize to ~60fps
+
+    let newX = parseFloat(trackingTarget.style.left);
+    let newY = parseFloat(trackingTarget.style.top);
+
+    // Different movement patterns
+    if (trackingPattern === "linear") {
+      // Linear back and forth movement
+      newX += speed * trackingDirection * timeScale;
+
+      if (newX <= minX || newX >= maxX) {
+        trackingDirection *= -1; // Reverse direction
+        newX = Math.max(minX, Math.min(newX, maxX));
+      }
+    } else if (trackingPattern === "circular") {
+      // Circular movement
+      trackingCurrentAngle += speed * 0.02 * timeScale;
+      newX = centerX + Math.cos(trackingCurrentAngle) * radius;
+      newY = centerY + Math.sin(trackingCurrentAngle) * radius;
+    } else if (trackingPattern === "random" || trackingPattern === "zigzag") {
+      // Follow pre-generated path points
+      if (trackingPathPoints.length > 0) {
+        const targetPoint = trackingPathPoints[0];
+        const dx = targetPoint.x - newX;
+        const dy = targetPoint.y - newY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < 5) {
+          // Reached point, move to next
+          trackingPathPoints.shift();
+          if (trackingPathPoints.length === 0) {
+            // Regenerate path when all points are visited
+            if (trackingPattern === "random") {
+              generateRandomPath(minX, maxX, minY, maxY);
+            } else {
+              generateZigzagPath(minX, maxX, minY, maxY);
+            }
+          }
+        } else {
+          // Move towards point
+          const moveX = (dx / distance) * speed * timeScale;
+          const moveY = (dy / distance) * speed * timeScale;
+          newX += moveX;
+          newY += moveY;
+        }
+      }
+    }
+
+    // Update position
+    trackingTarget.style.left = `${newX}px`;
+    trackingTarget.style.top = `${newY}px`;
+
+    // Store last position
+    trackingLastPosition = { x: newX, y: newY };
+
+    // Continue animation
+    trackingAnimationFrame = requestAnimationFrame(animate);
+  };
+
+  // Start animation
+  trackingAnimationFrame = requestAnimationFrame(animate);
+}
+
+function generateRandomPath(minX, maxX, minY, maxY) {
+  trackingPathPoints = [];
+  const pointCount = 5;
+
+  for (let i = 0; i < pointCount; i++) {
+    trackingPathPoints.push({
+      x: minX + Math.random() * (maxX - minX),
+      y: minY + Math.random() * (maxY - minY),
+    });
+  }
+}
+
+function generateZigzagPath(minX, maxX, minY, maxY) {
+  trackingPathPoints = [];
+  const pointCount = 6;
+
+  // Create zigzag pattern
+  for (let i = 0; i < pointCount; i++) {
+    const x = minX + (i % 2 === 0 ? 0.2 : 0.8) * (maxX - minX);
+    const y = minY + (i / pointCount) * (maxY - minY);
+    trackingPathPoints.push({ x, y });
+  }
+}
+
+function updateTrackingScore() {
+  if (!gameActive || !trackingTarget) return;
+
+  // Get cursor position
+  let cursorX, cursorY;
+
+  if (isPointerLocked) {
+    // Use the stored cursor position for pointer lock mode
+    cursorX = cursorX;
+    cursorY = cursorY;
+  } else {
+    // Use tracked mouse position
+    cursorX = mouseX;
+    cursorY = mouseY;
+  }
+
+  // Get target position and size
+  const targetRect = trackingTarget.getBoundingClientRect();
+  const targetX =
+    targetRect.left -
+    gameArea.getBoundingClientRect().left +
+    targetRect.width / 2;
+  const targetY =
+    targetRect.top -
+    gameArea.getBoundingClientRect().top +
+    targetRect.height / 2;
+  const targetRadius = targetRect.width / 2;
+
+  // Calculate distance between cursor and target center
+  const distance = Math.sqrt(
+    Math.pow(cursorX - targetX, 2) + Math.pow(cursorY - targetY, 2)
+  );
+
+  // Check if cursor is within target
+  if (distance <= targetRadius) {
+    // Increase streak and score
+    trackingStreak++;
+    trackingMaxStreak = Math.max(trackingMaxStreak, trackingStreak);
+
+    // Calculate multiplier based on streak
+    trackingMultiplier = 1 + Math.min(Math.floor(trackingStreak / 10), 4);
+
+    // Add score based on multiplier
+    trackingScore += trackingMultiplier;
+    score = trackingScore;
+
+    // Visual feedback - add "on-target" class
+    trackingTarget.classList.add("on-target");
+
+    // Show multiplier if > 1
+    if (trackingMultiplier > 1 && trackingStreak % 10 === 0) {
+      showTrackingMultiplier();
+    }
+  } else {
+    // Reset streak if cursor moves away from target
+    if (trackingStreak > 0) {
+      trackingStreak = 0;
+      trackingMultiplier = 1;
+      trackingTarget.classList.remove("on-target");
+    }
+  }
+
+  // Update HUD
+  updateTrackingHUD();
+}
+
+function showTrackingMultiplier() {
+  const multiplierEffect = document.createElement("div");
+  multiplierEffect.className = "tracking-multiplier";
+  multiplierEffect.textContent = `${trackingMultiplier}x`;
+
+  // Position near target
+  const targetRect = trackingTarget.getBoundingClientRect();
+  const x =
+    targetRect.left -
+    gameArea.getBoundingClientRect().left +
+    targetRect.width / 2;
+  const y = targetRect.top - gameArea.getBoundingClientRect().top - 20;
+
+  multiplierEffect.style.left = `${x}px`;
+  multiplierEffect.style.top = `${y}px`;
+
+  gameArea.appendChild(multiplierEffect);
+
+  // Animate and remove
+  setTimeout(() => {
+    if (multiplierEffect.parentNode) {
+      multiplierEffect.parentNode.removeChild(multiplierEffect);
+    }
+  }, 1000);
+}
+
+function updateTrackingHUD() {
+  scoreDisplay.textContent = `Score: ${trackingScore}`;
+  timerDisplay.textContent = `Time: ${timeLeft}`;
+  accuracyDisplay.textContent = `Streak: ${trackingStreak} | Best: ${trackingMaxStreak}`;
+}
+
+function cleanupTrackingMode() {
+  // Cancel animation frame
+  if (trackingAnimationFrame) {
+    cancelAnimationFrame(trackingAnimationFrame);
+    trackingAnimationFrame = null;
+  }
+
+  // Clear score interval
+  if (trackingScoreInterval) {
+    clearInterval(trackingScoreInterval);
+    trackingScoreInterval = null;
+  }
+
+  // Remove tracking target
+  if (trackingTarget && trackingTarget.parentNode) {
+    trackingTarget.remove();
+    trackingTarget = null;
+  }
+
+  // Remove tracking cursor
+  const cursor = document.querySelector(".tracking-cursor");
+  if (cursor) {
+    cursor.remove();
+  }
+
+  // Remove mouse move listener
+  gameArea.removeEventListener("mousemove", trackMouse);
+
+  // Remove any multiplier effects
+  const multipliers = document.querySelectorAll(".tracking-multiplier");
+  multipliers.forEach((el) => el.remove());
+}
+
 // Show/hide speed control based on game mode selection
 gameModeSelect.addEventListener("change", function () {
   if (this.value === "moving") {
     speedControl.style.display = "flex";
+    document.getElementById("flick-control").style.display = "none";
+    document.getElementById("tracking-control").style.display = "none";
+  } else if (this.value === "flick") {
+    speedControl.style.display = "none";
+    document.getElementById("flick-control").style.display = "flex";
+    document.getElementById("tracking-control").style.display = "none";
+  } else if (this.value === "tracking") {
+    speedControl.style.display = "none";
+    document.getElementById("flick-control").style.display = "none";
+    document.getElementById("tracking-control").style.display = "flex";
   } else {
     speedControl.style.display = "none";
+    document.getElementById("flick-control").style.display = "none";
+    document.getElementById("tracking-control").style.display = "none";
   }
 
   if (this.value === "quickscope") {

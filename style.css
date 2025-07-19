@@ -37,6 +37,147 @@ body {
     crosshair;
 }
 
+/* Tracking mode styles */
+.tracking-target {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(255, 71, 87, 0.5); /* More opaque */
+  border: 3px solid #ff4757; /* Thicker border */
+  box-shadow: 0 0 20px rgba(255, 71, 87, 0.6); /* Stronger glow */
+  transition: all 0.2s ease;
+  will-change: transform, left, top;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+  z-index: 10;
+}
+
+.tracking-inner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #ff4757;
+  box-shadow: 0 0 10px rgba(255, 71, 87, 0.8);
+}
+
+.tracking-cursor {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  border: 2px solid white;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 20;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+}
+
+.tracking-target.on-target {
+  background: rgba(38, 222, 129, 0.5); /* More opaque */
+  border: 3px solid #26de81; /* Thicker border */
+  box-shadow: 0 0 25px rgba(38, 222, 129, 0.8); /* Stronger glow */
+}
+
+.tracking-target.on-target .tracking-inner {
+  background: #26de81;
+  box-shadow: 0 0 15px rgba(38, 222, 129, 0.9);
+}
+
+.tracking-multiplier {
+  position: absolute;
+  color: #ffd32a;
+  font-size: 24px;
+  font-weight: bold;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  animation: multiplierFade 1s forwards;
+  z-index: 100;
+  transform: translate(-50%, -50%);
+}
+
+@keyframes multiplierFade {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -150%) scale(1.5);
+  }
+}
+
+/* Flick Shot mode styles */
+.flick-target {
+  position: absolute;
+  background: #ff4757;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), 0 0 15px rgba(255, 71, 87, 0.6);
+  animation: flickPulse 0.8s infinite alternate;
+  transform-origin: center center;
+  will-change: transform, box-shadow;
+}
+
+@keyframes flickPulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), 0 0 15px rgba(255, 71, 87, 0.6);
+  }
+  100% {
+    transform: scale(1.1);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3), 0 0 20px rgba(255, 71, 87, 0.8);
+  }
+}
+
+.flick-combo {
+  position: absolute;
+  top: -20px;
+  right: -10px;
+  background: #ffa502;
+  color: white;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+.combo-effect {
+  position: absolute;
+  color: #ffa502;
+  font-size: 24px;
+  font-weight: bold;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  animation: comboFade 1s forwards;
+  z-index: 100;
+  transform: translate(-50%, -50%);
+}
+
+@keyframes comboFade {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -100%) scale(1.5);
+  }
+}
+
 /* Quick Reflex mode styles */
 .reflex-mode {
   display: flex;
