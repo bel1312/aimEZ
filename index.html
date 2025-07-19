@@ -21,6 +21,7 @@
           <select id="game-mode">
             <option value="standard">Standard</option>
             <option value="quickscope">Quick Scope</option>
+            <option value="moving">Moving Target</option>
           </select>
         </div>
         <div class="mode-selector">
@@ -32,6 +33,15 @@
             <option value="2.5">2.5s</option>
             <option value="3">3s</option>
             <option value="0">Never</option>
+          </select>
+        </div>
+        <div class="mode-selector" id="speed-control" style="display: none">
+          <span>Target Speed:</span>
+          <select id="target-speed">
+            <option value="1">Slow</option>
+            <option value="3" selected>Medium</option>
+            <option value="5">Fast</option>
+            <option value="8">Very Fast</option>
           </select>
         </div>
         <div class="button-group">

@@ -6,6 +6,8 @@ const startBtn = document.getElementById("start-btn");
 const stopBtn = document.getElementById("stop-btn");
 const gameModeSelect = document.getElementById("game-mode");
 const targetDurationSelect = document.getElementById("target-duration");
+const targetSpeedSelect = document.getElementById("target-speed");
+const speedControl = document.getElementById("speed-control");
 
 let score = 0;
 let totalShots = 0;
@@ -18,6 +20,8 @@ let currentGameMode = "standard";
 let targetDuration = 1; // Default target duration in seconds
 let isPointerLocked = false;
 let customCursor = null;
+let moveInterval = null;
+let targetSpeed = 3; // Speed of moving target in pixels per frame
 
 function randomPosition() {
   const areaRect = gameArea.getBoundingClientRect();
@@ -37,6 +41,11 @@ function spawnTarget() {
   target.addEventListener("click", hitTarget);
   gameArea.appendChild(target);
 
+  // For moving target mode, start the movement
+  if (currentGameMode === "moving" && gameActive) {
+    startTargetMovement(target);
+  }
+
   // Set timeout to remove target if not hit within the specified duration
   if (targetDuration > 0) {
     targetTimeout = setTimeout(() => {
@@ -50,6 +59,93 @@ function spawnTarget() {
   }
 }
 
+// Improved target movement function for smoother animation
+function startTargetMovement(target) {
+  // Clear any existing movement interval
+  if (moveInterval) {
+    clearInterval(moveInterval);
+  }
+
+  // Generate random direction vector
+  const angle = Math.random() * Math.PI * 2;
+  const dx = Math.cos(angle) * targetSpeed;
+  const dy = Math.sin(angle) * targetSpeed;
+
+  // Store direction on target element
+  target.dataset.dx = dx;
+  target.dataset.dy = dy;
+
+  // Add visual indicator for moving targets
+  target.style.animation = "pulse 1.5s infinite";
+  target.style.background = "#26de81"; // Different color for moving targets
+
+  // Set initial position and enable hardware acceleration for smoother movement
+  const initialX = parseFloat(target.style.left);
+  const initialY = parseFloat(target.style.top);
+
+  // Remove transition to avoid conflicts with requestAnimationFrame
+  target.style.transition = "none";
+  target.style.transform = "translate3d(0, 0, 0)";
+
+  // Variables to track position
+  let posX = initialX;
+  let posY = initialY;
+
+  // Use requestAnimationFrame for smoother animation
+  let lastTimestamp = null;
+  const animate = (timestamp) => {
+    if (!gameActive) return;
+
+    if (!lastTimestamp) lastTimestamp = timestamp;
+    const deltaTime = timestamp - lastTimestamp;
+    lastTimestamp = timestamp;
+
+    // Calculate time-based movement (for consistent speed regardless of frame rate)
+    const timeScale = deltaTime / 16; // Normalize to ~60fps
+
+    const areaRect = gameArea.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const targetWidth = targetRect.width;
+    const targetHeight = targetRect.height;
+
+    // Get current direction
+    let dx = parseFloat(target.dataset.dx);
+    let dy = parseFloat(target.dataset.dy);
+
+    // Calculate new position with time scaling
+    posX += dx * timeScale;
+    posY += dy * timeScale;
+
+    // Check for collisions with walls and bounce
+    if (posX <= 0 || posX + targetWidth >= areaRect.width) {
+      dx = -dx;
+      target.dataset.dx = dx;
+      posX = Math.max(0, Math.min(posX, areaRect.width - targetWidth));
+    }
+
+    if (posY <= 0 || posY + targetHeight >= areaRect.height) {
+      dy = -dy;
+      target.dataset.dy = dy;
+      posY = Math.max(0, Math.min(posY, areaRect.height - targetHeight));
+    }
+
+    // Update position using transform for smoother rendering
+    target.style.left = `${initialX}px`;
+    target.style.top = `${initialY}px`;
+    target.style.transform = `translate3d(${posX - initialX}px, ${
+      posY - initialY
+    }px, 0)`;
+
+    // Continue animation loop
+    if (gameActive && document.contains(target)) {
+      requestAnimationFrame(animate);
+    }
+  };
+
+  // Start the animation loop
+  requestAnimationFrame(animate);
+}
+
 function removeTarget() {
   const existing = document.querySelector(".target");
   if (existing) existing.remove();
@@ -58,6 +154,12 @@ function removeTarget() {
   if (targetTimeout) {
     clearTimeout(targetTimeout);
     targetTimeout = null;
+  }
+
+  // Clear movement interval if exists
+  if (moveInterval) {
+    clearInterval(moveInterval);
+    moveInterval = null;
   }
 }
 
@@ -184,25 +286,82 @@ function updateCursorOnMouseMove(e) {
   }
 }
 
+// Update resetCursorPosition to use a more reliable method
 function resetCursorPosition() {
-  if (currentGameMode === "quickscope" && gameActive) {
-    // Get game area dimensions
-    const areaRect = gameArea.getBoundingClientRect();
-    const centerX = areaRect.width / 2;
-    const centerY = areaRect.height / 2;
+  // Get game area dimensions
+  const areaRect = gameArea.getBoundingClientRect();
+  const centerX = areaRect.width / 2;
+  const centerY = areaRect.height / 2;
 
-    // Reset cursor position variables
-    cursorX = centerX;
-    cursorY = centerY;
+  // Reset cursor position variables
+  cursorX = centerX;
+  cursorY = centerY;
 
-    // Update custom cursor position
+  // Update custom cursor position if it exists
+  if (customCursor) {
     updateCustomCursorPosition(centerX, centerY);
-
-    // If we're in quick scope mode, lock the pointer if not already locked
-    if (!isPointerLocked) {
-      gameArea.requestPointerLock();
-    }
   }
+
+  // For quick scope mode, ensure pointer is locked
+  if (currentGameMode === "quickscope" && !isPointerLocked) {
+    gameArea.requestPointerLock();
+  }
+
+  // For other modes, we can't reliably move the actual cursor due to browser security
+  // Instead, we'll use a visual indicator to show where the cursor should be
+  if (currentGameMode === "moving" || currentGameMode === "standard") {
+    // Remove any existing cursor indicators
+    const existingIndicators = document.querySelectorAll(".cursor-indicator");
+    existingIndicators.forEach((indicator) => {
+      if (indicator.parentNode) {
+        indicator.parentNode.removeChild(indicator);
+      }
+    });
+
+    // Create a temporary cursor indicator
+    const tempCursor = document.createElement("div");
+    tempCursor.className = "cursor-indicator";
+    tempCursor.style.position = "absolute";
+    tempCursor.style.width = "30px";
+    tempCursor.style.height = "30px";
+    tempCursor.style.borderRadius = "50%";
+    tempCursor.style.backgroundColor = "rgba(255, 255, 255, 0.5)";
+    tempCursor.style.border = "2px solid white";
+    tempCursor.style.zIndex = "1000";
+    tempCursor.style.transform = "translate(-50%, -50%)";
+    tempCursor.style.left = `${centerX}px`;
+    tempCursor.style.top = `${centerY}px`;
+    tempCursor.style.pointerEvents = "none";
+
+    // Add crosshair lines
+    const crosshairHTML = `
+      <div style="position: absolute; width: 100%; height: 2px; background: white; top: 50%; left: 0;"></div>
+      <div style="position: absolute; width: 2px; height: 100%; background: white; left: 50%; top: 0;"></div>
+    `;
+    tempCursor.innerHTML = crosshairHTML;
+
+    // Add animation
+    tempCursor.style.animation = "cursorPulse 0.8s ease-out";
+
+    // Add to game area
+    gameArea.appendChild(tempCursor);
+
+    // Remove after animation completes
+    setTimeout(() => {
+      if (tempCursor.parentNode) {
+        tempCursor.parentNode.removeChild(tempCursor);
+      }
+    }, 800);
+  }
+}
+
+// Add a new function to handle cursor centering for all game modes
+function handleCursorCentering() {
+  // Only center cursor if game is active
+  if (!gameActive) return;
+
+  // Center cursor for all game modes
+  resetCursorPosition();
 }
 
 function hitTarget(e) {
@@ -223,13 +382,26 @@ function hitTarget(e) {
     setTimeout(() => {
       spawnTarget();
     }, 300);
+  } else if (currentGameMode === "moving") {
+    // Remove the current target
+    removeTarget();
+
+    // Reset cursor position to center for moving target mode too
+    handleCursorCentering();
+
+    // Spawn a new target
+    spawnTarget();
   } else {
+    // For standard mode
+    removeTarget();
+    handleCursorCentering();
     spawnTarget();
   }
 
   e.stopPropagation();
 }
 
+// Update the game area click handler
 gameArea.addEventListener("click", function (e) {
   if (!gameActive) return;
 
@@ -268,10 +440,16 @@ gameArea.addEventListener("click", function (e) {
     if (!hit) {
       totalShots++;
       updateHUD();
+
+      // Center cursor after each miss in all game modes
+      handleCursorCentering();
     }
   } else if (!target) {
     totalShots++;
     updateHUD();
+
+    // Center cursor after each miss in all game modes
+    handleCursorCentering();
   }
 });
 
@@ -293,6 +471,11 @@ function startGame() {
   currentGameMode = gameModeSelect.value;
   targetDuration = parseFloat(targetDurationSelect.value);
 
+  // Set target speed if in moving target mode
+  if (currentGameMode === "moving") {
+    targetSpeed = parseInt(targetSpeedSelect.value);
+  }
+
   // Setup pointer lock for quick scope mode
   if (currentGameMode === "quickscope") {
     setupPointerLock();
@@ -303,6 +486,9 @@ function startGame() {
       customCursor = null;
     }
   }
+
+  // Center cursor at the start of the game
+  resetCursorPosition();
 
   updateHUD();
   spawnTarget();
@@ -335,10 +521,12 @@ function stopGame() {
 
   // Show game summary
   const accuracy = totalShots > 0 ? Math.round((hits / totalShots) * 100) : 0;
+  let gameModeName = "Standard";
+  if (currentGameMode === "quickscope") gameModeName = "Quick Scope";
+  if (currentGameMode === "moving") gameModeName = "Moving Target";
+
   alert(
-    `Game stopped!\nGame Mode: ${
-      currentGameMode === "standard" ? "Standard" : "Quick Scope"
-    }\nScore: ${score}\nAccuracy: ${accuracy}%`
+    `Game stopped!\nGame Mode: ${gameModeName}\nScore: ${score}\nAccuracy: ${accuracy}%`
   );
 }
 
@@ -360,17 +548,25 @@ function endGame() {
     customCursor = null;
   }
 
+  let gameModeName = "Standard";
+  if (currentGameMode === "quickscope") gameModeName = "Quick Scope";
+  if (currentGameMode === "moving") gameModeName = "Moving Target";
+
   alert(
-    `Time's up!\nGame Mode: ${
-      currentGameMode === "standard" ? "Standard" : "Quick Scope"
-    }\nScore: ${score}\nAccuracy: ${
+    `Time's up!\nGame Mode: ${gameModeName}\nScore: ${score}\nAccuracy: ${
       totalShots > 0 ? Math.round((hits / totalShots) * 100) : 0
     }%`
   );
 }
 
-// Remove default cursor from game area when in quick scope mode
+// Show/hide speed control based on game mode selection
 gameModeSelect.addEventListener("change", function () {
+  if (this.value === "moving") {
+    speedControl.style.display = "flex";
+  } else {
+    speedControl.style.display = "none";
+  }
+
   if (this.value === "quickscope") {
     gameArea.style.cursor = "none";
   } else {
