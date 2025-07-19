@@ -23,6 +23,13 @@ let customCursor = null;
 let moveInterval = null;
 let targetSpeed = 3; // Speed of moving target in pixels per frame
 
+// Quick reflex mode variables
+let reflexRound = 0;
+let reflexTimes = [];
+let reflexStartTime = 0;
+let reflexTimeout = null;
+let reflexState = "idle"; // idle, wait, go, early, results
+
 function randomPosition() {
   const areaRect = gameArea.getBoundingClientRect();
   const size = 48; // target size
@@ -490,15 +497,20 @@ function startGame() {
   // Center cursor at the start of the game
   resetCursorPosition();
 
-  updateHUD();
-  spawnTarget();
-  timerInterval = setInterval(() => {
-    timeLeft--;
+  // Start appropriate game mode
+  if (currentGameMode === "reflex") {
+    startReflexMode();
+  } else {
     updateHUD();
-    if (timeLeft <= 0) {
-      endGame();
-    }
-  }, 1000);
+    spawnTarget();
+    timerInterval = setInterval(() => {
+      timeLeft--;
+      updateHUD();
+      if (timeLeft <= 0) {
+        endGame();
+      }
+    }, 1000);
+  }
 }
 
 function stopGame() {
@@ -519,15 +531,21 @@ function stopGame() {
     customCursor = null;
   }
 
+  // Clean up reflex mode if active
+  cleanupReflexMode();
+
   // Show game summary
   const accuracy = totalShots > 0 ? Math.round((hits / totalShots) * 100) : 0;
   let gameModeName = "Standard";
   if (currentGameMode === "quickscope") gameModeName = "Quick Scope";
   if (currentGameMode === "moving") gameModeName = "Moving Target";
+  if (currentGameMode === "reflex") gameModeName = "Quick Reflex";
 
-  alert(
-    `Game stopped!\nGame Mode: ${gameModeName}\nScore: ${score}\nAccuracy: ${accuracy}%`
-  );
+  if (currentGameMode !== "reflex") {
+    alert(
+      `Game stopped!\nGame Mode: ${gameModeName}\nScore: ${score}\nAccuracy: ${accuracy}%`
+    );
+  }
 }
 
 function endGame() {
@@ -548,15 +566,269 @@ function endGame() {
     customCursor = null;
   }
 
+  // Clean up reflex mode if active
+  cleanupReflexMode();
+
   let gameModeName = "Standard";
   if (currentGameMode === "quickscope") gameModeName = "Quick Scope";
   if (currentGameMode === "moving") gameModeName = "Moving Target";
+  if (currentGameMode === "reflex") gameModeName = "Quick Reflex";
 
-  alert(
-    `Time's up!\nGame Mode: ${gameModeName}\nScore: ${score}\nAccuracy: ${
-      totalShots > 0 ? Math.round((hits / totalShots) * 100) : 0
-    }%`
-  );
+  if (currentGameMode !== "reflex") {
+    alert(
+      `Time's up!\nGame Mode: ${gameModeName}\nScore: ${score}\nAccuracy: ${
+        totalShots > 0 ? Math.round((hits / totalShots) * 100) : 0
+      }%`
+    );
+  }
+}
+
+// Quick Reflex Mode Functions
+function startReflexMode() {
+  // Reset reflex mode variables
+  reflexRound = 0;
+  reflexTimes = [];
+  reflexState = "idle";
+
+  // Hide HUD elements that aren't relevant
+  scoreDisplay.textContent = "Quick Reflex Mode";
+  timerDisplay.textContent = "";
+  accuracyDisplay.textContent = "";
+
+  // Perform a calibration test to measure system delay
+  calibrateReflexSystem();
+}
+
+// System calibration to account for browser/system delays
+let systemDelayOffset = 0;
+
+function calibrateReflexSystem() {
+  // Create a temporary invisible element for calibration
+  const calibrationElement = document.createElement("div");
+  calibrationElement.style.position = "absolute";
+  calibrationElement.style.opacity = "0";
+  calibrationElement.style.pointerEvents = "none";
+  document.body.appendChild(calibrationElement);
+
+  // Measure the time between requestAnimationFrame and setTimeout
+  // This helps account for some system delays
+  const startTime = performance.now();
+
+  requestAnimationFrame(() => {
+    const rafTime = performance.now();
+    setTimeout(() => {
+      const setTimeoutTime = performance.now();
+      // Calculate average system delay
+      systemDelayOffset = Math.min(30, (setTimeoutTime - rafTime) / 2);
+
+      // Clean up
+      document.body.removeChild(calibrationElement);
+
+      // Start the first round
+      startReflexRound();
+    }, 0);
+  });
+}
+
+function startReflexRound() {
+  if (!gameActive) return;
+
+  reflexRound++;
+
+  // Create or update the reflex mode container
+  let reflexContainer = document.querySelector(".reflex-mode");
+  if (!reflexContainer) {
+    reflexContainer = document.createElement("div");
+    reflexContainer.className = "reflex-mode wait";
+    gameArea.appendChild(reflexContainer);
+  } else {
+    reflexContainer.className = "reflex-mode wait";
+  }
+
+  // Add instruction text
+  const textElement = document.createElement("div");
+  textElement.className = "reflex-text";
+  textElement.textContent = "WAIT FOR GREEN, THEN CLICK!";
+  reflexContainer.innerHTML = "";
+  reflexContainer.appendChild(textElement);
+
+  // Set state to wait
+  reflexState = "wait";
+
+  // Set a random timeout between 1-7 seconds
+  const randomDelay = Math.floor(Math.random() * 6000) + 1000; // 1000-7000ms
+
+  // Use requestAnimationFrame for more precise timing
+  let startWaitTime = performance.now();
+
+  // Cancel any existing animation frame
+  if (window.reflexAnimationFrameId) {
+    cancelAnimationFrame(window.reflexAnimationFrameId);
+  }
+
+  const waitLoop = (timestamp) => {
+    if (!gameActive || reflexState !== "wait") {
+      cancelAnimationFrame(window.reflexAnimationFrameId);
+      window.reflexAnimationFrameId = null;
+      return;
+    }
+
+    const elapsedTime = performance.now() - startWaitTime;
+
+    if (elapsedTime >= randomDelay) {
+      // Change to green
+      reflexContainer.className = "reflex-mode go";
+      textElement.textContent = "CLICK NOW!";
+      reflexState = "go";
+
+      // Use high resolution timestamp and account for system delay
+      reflexStartTime = performance.now();
+
+      // Cancel the animation frame
+      cancelAnimationFrame(window.reflexAnimationFrameId);
+      window.reflexAnimationFrameId = null;
+    } else {
+      // Continue the loop
+      window.reflexAnimationFrameId = requestAnimationFrame(waitLoop);
+    }
+  };
+
+  // Start the animation frame loop
+  window.reflexAnimationFrameId = requestAnimationFrame(waitLoop);
+
+  // Add click handler with passive option for better performance
+  reflexContainer.onclick = handleReflexClick;
+}
+
+function handleReflexClick(e) {
+  if (!gameActive) return;
+
+  // Capture click time immediately for maximum accuracy
+  const clickTime = performance.now();
+
+  const reflexContainer = document.querySelector(".reflex-mode");
+  if (!reflexContainer) return;
+
+  if (reflexState === "wait") {
+    // Clicked too early
+    reflexState = "early";
+    reflexContainer.className = "reflex-mode early";
+    const textElement = reflexContainer.querySelector(".reflex-text");
+    if (textElement) {
+      textElement.textContent = "Too early! Click to try again.";
+    }
+  } else if (reflexState === "go") {
+    // Calculate reaction time, adjusting for system delay
+    const reactionTime = Math.max(
+      0,
+      clickTime - reflexStartTime - systemDelayOffset
+    );
+    reflexTimes.push(reactionTime);
+
+    // Update state
+    reflexState = "idle";
+
+    if (reflexRound < 5) {
+      // Show reaction time briefly
+      reflexContainer.className = "reflex-mode";
+      reflexContainer.innerHTML = `<div class="reflex-text">Reaction Time: ${reactionTime.toFixed(
+        1
+      )} ms<br>Click for next round</div>`;
+      reflexContainer.onclick = () => {
+        if (gameActive) {
+          startReflexRound();
+        }
+      };
+    } else {
+      // Show final results after 5 rounds
+      showReflexResults();
+    }
+  } else if (reflexState === "early") {
+    // Retry after clicking too early
+    startReflexRound();
+  }
+
+  e.stopPropagation();
+}
+
+function showReflexResults() {
+  if (!gameActive) return;
+
+  // Calculate average reaction time
+  const validTimes = reflexTimes.filter((time) => time > 0);
+  const avgTime =
+    validTimes.length > 0
+      ? validTimes.reduce((sum, time) => sum + time, 0) / validTimes.length
+      : 0;
+
+  // Create results container
+  const resultsContainer = document.createElement("div");
+  resultsContainer.className = "reflex-results";
+
+  // Create results content
+  let resultsHTML = `
+    <h2>Reaction Time Results</h2>
+    <ul>
+  `;
+
+  // Add each round's time
+  for (let i = 0; i < reflexTimes.length; i++) {
+    resultsHTML += `<li><span>Round ${i + 1}:</span> <span>${reflexTimes[
+      i
+    ].toFixed(1)} ms</span></li>`;
+  }
+
+  resultsHTML += `
+    </ul>
+    <div class="average">Average: ${avgTime.toFixed(1)} ms</div>
+    <p style="font-size: 0.9rem; opacity: 0.8;">System delay compensation: ${systemDelayOffset.toFixed(
+      1
+    )} ms</p>
+    <button id="reflex-continue">Continue</button>
+    <button id="reflex-restart">Restart</button>
+  `;
+
+  resultsContainer.innerHTML = resultsHTML;
+  gameArea.appendChild(resultsContainer);
+
+  // Add event listeners to buttons
+  document.getElementById("reflex-continue").addEventListener("click", () => {
+    cleanupReflexMode();
+    endGame();
+  });
+
+  document.getElementById("reflex-restart").addEventListener("click", () => {
+    cleanupReflexMode();
+    startReflexMode();
+  });
+}
+
+function cleanupReflexMode() {
+  // Clear any pending timeouts
+  if (reflexTimeout) {
+    clearTimeout(reflexTimeout);
+    reflexTimeout = null;
+  }
+
+  // Cancel any pending animation frames
+  if (window.reflexAnimationFrameId) {
+    cancelAnimationFrame(window.reflexAnimationFrameId);
+    window.reflexAnimationFrameId = null;
+  }
+
+  // Remove reflex containers
+  const reflexContainer = document.querySelector(".reflex-mode");
+  if (reflexContainer) {
+    reflexContainer.remove();
+  }
+
+  const resultsContainer = document.querySelector(".reflex-results");
+  if (resultsContainer) {
+    resultsContainer.remove();
+  }
+
+  // Reset state
+  reflexState = "idle";
 }
 
 // Show/hide speed control based on game mode selection
